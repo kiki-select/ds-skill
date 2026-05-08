@@ -91,6 +91,8 @@ bash scripts/funnydb post /api/v1/open/skillhub/tools/panels/data \
 
 > **不要硬塞相似看板**。看板口径与需求差太多还硬用，结果会被分析师甩回来重做。
 
+> **拉到 `event_model=retention` 类面板时**，`values` 数组的下标对齐有特殊规则（`values[0]` 是基数，`values[N]` 才是业内"N留"绝对值），手数下标错一位就会偏 1 天。详见 [`references/funnydb-retention-panel-reading.md`](references/funnydb-retention-panel-reading.md)。
+
 ### Step 3：元数据查询（业务含义 + 字段校验）
 
 走自主 SQL 路径前，先用 FunnyDB analyse 接口拿元数据。**禁止凭经验猜事件名/字段名**。
@@ -357,6 +359,7 @@ CSV 路径：`outputs/<场景>/main_<开始日期>_<结束日期>.csv`
 | 中文 CSV Windows 乱码 | 必须 UTF-8 BOM，run_sql.py 已自动 |
 | 看似唯一的 ID 不唯一 | `count(*) vs count(distinct id)` 探查，差距大就别按它聚合 |
 | List 字段 `length(X)` 算字符数 | String 类型用 `length(splitByChar(',', X))`；Array 类型才能直接 `length(X)` |
+| 留存面板 `values[N]` 数错位置 | `values[0]` 是基数，业内 N留 = `values[N]`；多 cohort 直接读 `stage_avg.values_percent[N]` 别手算 |
 
 ---
 
@@ -394,4 +397,5 @@ CSV 路径：`outputs/<场景>/main_<开始日期>_<结束日期>.csv`
 | `references/data-probing-templates.md` | 探查 SQL 模板集（实体粒度/唯一性/枚举/样本流） |
 | `references/result-verification.md` | 抽样校验方法论 + 模板 |
 | `references/entity-grain-identification.md` | 单实体 vs 批量上报识别方法 |
+| `references/funnydb-retention-panel-reading.md` | FunnyDB 留存面板（event_model=retention）数据解析规则 |
 | `examples/sample-query/` | 示例查询目录结构 |

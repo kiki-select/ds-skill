@@ -63,17 +63,20 @@ Step 1 → Step 2 → Step 3 → Step 4 → Step 5 → Step 6 → Step 7 → Ste
 ```bash
 cd <funnydb skill 路径>   # 通常是 .claude/skills/funnydb 或 ~/.claude/skills/funnydb
 
-# (1) 拉完整看板目录（dashboard_spaces 分组 + 嵌套 dashboards）
+# (1) 拉完整看板目录（dashabord_spaces 空间 → 嵌套 dashboards 看板；另含 private_dashabord_space）
 bash scripts/funnydb post /api/v1/open/skillhub/tools/dashboards/search \
   --data '{"app_id": <APP_ID>}'
 
-# (2) 按业务关键词从返回值的 spaces.name + dashboards.name + description 里筛候选
+# (2) 用「空间名 + 文件夹名 + 看板名」做粗筛，缩小到候选看板
+#     —— 层级本身就是业务分组的语义信号（如「香肠整体数据 > 留存」「摸金派对 > 流失看板」）
 
 # (3) 选定 dashboard 后查 panel 清单
+#     返回带 dashboard_space + dashboard_folder + panels[]（每个 panel 含 description）
+#     ★ 优先读 panel.description 判断口径：「主要内容」对业务场景、「核心指标」对指标口径
 bash scripts/funnydb post /api/v1/open/skillhub/tools/dashboards/details \
   --data '{"app_id": <APP_ID>, "dashboard_id": <DASHBOARD_ID>}'
 
-# (4) 选定 panel 后查变量+口径，再拉数据
+# (4) 描述命中的 panel 再查变量 + SQL 口径确认细节，再拉数据
 bash scripts/funnydb post /api/v1/open/skillhub/tools/panels/details \
   --data '{"app_id": <APP_ID>, "panel_id": <PANEL_ID>}'
 
@@ -81,15 +84,18 @@ bash scripts/funnydb post /api/v1/open/skillhub/tools/panels/data \
   --data '{"app_id": <APP_ID>, "panel_id": <PANEL_ID>, "args": {...}}'
 ```
 
+> **描述优先（命中率关键）**：funnydb 已迭代为返回看板空间/文件夹层级 + 报表 `description`（运营手写的「主要内容 + 核心指标」）。先靠层级名粗筛候选，再用 `description` 快速判口径——能命中就省掉解析 SQL 反推口径的成本。
+> **但 `description` 可能为空**（不是所有报表都写了）：描述为空的报表退回老办法，直接拉 `panels/details` 看 SQL/变量反推口径，别因为没描述就跳过候选。
+
 **看板满足的判定标准**（同时满足才算「满足」）：
-- ✅ 看板的指标定义和需求一致（不只是名字像）
+- ✅ 看板的指标定义和需求一致（不只是名字像）—— 有 `description` 时先读「核心指标」，命中再核 SQL
 - ✅ 看板支持的维度切分覆盖需求维度
 - ✅ 看板的过滤条件能精确表达需求过滤
 - ✅ 看板的时间范围能覆盖需求时间窗口
 
 满足 → 拉数据进 Step 7（落 CSV 交付）；不满足 → 进 Step 3 走自主 SQL 路径。
 
-> **不要硬塞相似看板**。看板口径与需求差太多还硬用，结果会被分析师甩回来重做。
+> **不要硬塞相似看板**。看板口径与需求差太多还硬用，结果会被分析师甩回来重做。**`description` 是粗筛信号，不是终判**——最终口径仍以 panel 的 SQL/变量为准。
 
 > **拉到 `event_model=retention` 类面板时**，`values` 数组的下标对齐有特殊规则（`values[0]` 是基数，`values[N]` 才是业内"N留"绝对值），手数下标错一位就会偏 1 天。详见 [`references/funnydb-retention-panel-reading.md`](references/funnydb-retention-panel-reading.md)。
 
@@ -360,6 +366,8 @@ CSV 路径：`outputs/<场景>/main_<开始日期>_<结束日期>.csv`
 | 看似唯一的 ID 不唯一 | `count(*) vs count(distinct id)` 探查，差距大就别按它聚合 |
 | List 字段 `length(X)` 算字符数 | String 类型用 `length(splitByChar(',', X))`；Array 类型才能直接 `length(X)` |
 | 留存面板 `values[N]` 数错位置 | `values[0]` 是基数，业内 N留 = `values[N]`；多 cohort 直接读 `stage_avg.values_percent[N]` 别手算 |
+| 看板候选选不准 / 命中率低 | 先用空间+文件夹+看板名层级粗筛，再读 panel.description 的「主要内容/核心指标」判口径 |
+| panel.description 为空 | 不是所有报表都写了描述，空则退回拉 `panels/details` 看 SQL/变量反推口径，别跳过候选 |
 
 ---
 
@@ -370,7 +378,8 @@ CSV 路径：`outputs/<场景>/main_<开始日期>_<结束日期>.csv`
   │
   ├─ Step 1：拆四要素（指标/维度/时间/过滤），不清晰回问
   │
-  ├─ Step 2：dashboards/search 拉看板目录，按业务关键词找候选
+  ├─ Step 2：dashboards/search 拉看板目录（空间/文件夹/看板层级粗筛候选）
+  │   │       → dashboards/details 读 panel.description 判口径（空则拉 SQL 反推）
   │   │
   │   ├─ 有看板 + 口径精确匹配（指标/维度/过滤/时间窗口都覆盖）
   │   │   └→ panels/data 拉数据 → Step 8 落 CSV
